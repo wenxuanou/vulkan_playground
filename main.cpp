@@ -69,6 +69,10 @@ private:
 	VkQueue graphicsQueue;
 	VkSurfaceKHR surface;
 	VkQueue presentQueue;
+	// list of required device extensions
+	const std::vector<const char*> deviceExtensions = {
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME
+	};
 
 
     void initWindow() {
@@ -151,7 +155,6 @@ private:
 		}
 
     }
-
 
 	// get extensions
 	std::vector<const char*> getRequiredExtensions() {
@@ -255,11 +258,33 @@ private:
 		VkPhysicalDeviceFeatures deviceFeatures;
 		vkGetPhysicalDeviceProperties(device, &deviceProperties);
 		vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+		// check queue families
 		QueueFamilyIndices indices = findQueueFamilies(device);
+		
+		// check swap chain support
+		bool extensionsSupported = checkDeviceExtensionSupport(device);
 
 		return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
-			deviceFeatures.geometryShader && indices.isComplete();
+			deviceFeatures.geometryShader && indices.isComplete() && extensionsSupported;
 	}
+
+	bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
+		uint32_t extensionCount;
+		vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
+		std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+		vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
+		
+		std::set<std::string> requiredExtensions(deviceExtensions.begin(), deviceExtensions.end());
+		
+		// remove found extension name from required list
+		for(const auto& extension : availableExtensions) {
+			requiredExtensions.erase(extension.extensionName);
+		}
+
+		return requiredExtensions.empty(); 
+	}
+
+
 
 	// search for queue family
 	struct QueueFamilyIndices {
