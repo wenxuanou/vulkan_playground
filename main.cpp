@@ -8,6 +8,7 @@
 // #include <GLFW/glfw3native.h>
 
 #include <iostream>
+#include <fstream>
 #include <optional>
 #include <stdexcept>
 #include <cstdlib>
@@ -119,6 +120,7 @@ private:
 		createLogicalDevice();
 		createSwapChain();
 		createImageViews();
+		createGraphicsPipeline();
     }
 
 	void mainLoop() {
@@ -590,6 +592,10 @@ private:
 		}
 	}
 
+
+	void createGraphicsPipeline() {
+
+	}
 
 };	// HelloTriangleApplication
 
