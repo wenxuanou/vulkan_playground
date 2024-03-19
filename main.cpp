@@ -15,11 +15,20 @@
 #include <set>
 #include <cstring>
 
+#include <cstdint> // Necessary for uint32_t
+#include <limits> // Necessary for std::numeric_limits
+#include <algorithm> // Necessary for std::clamp
+
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 
 const std::vector<const char*> validationLayers = {
     "VK_LAYER_KHRONOS_validation"
+};
+
+// list of required device extensions
+const std::vector<const char*> deviceExtensions = {
+	VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
 #ifdef NDEBUG
@@ -69,10 +78,7 @@ private:
 	VkQueue graphicsQueue;
 	VkSurfaceKHR surface;
 	VkQueue presentQueue;
-	// list of required device extensions
-	const std::vector<const char*> deviceExtensions = {
-		VK_KHR_SWAPCHAIN_EXTENSION_NAME
-	};
+	VkSwapchainKHR swapChain;
 
 
     void initWindow() {
@@ -90,6 +96,7 @@ private:
 		createSurface();
 		pickPhysicalDevice();
 		createLogicalDevice();
+		createSwapChain();
     }
 
 	void mainLoop() {
@@ -99,7 +106,8 @@ private:
     }
 
     void cleanup() {
-		vkDestroyDevice(device, nullptr);	// destroy device first
+		vkDestroySwapchainKHR(device, swapChain, nullptr);
+		vkDestroyDevice(device, nullptr);	// destroy before instance
 
 		if (enableValidationLayers) {
 			DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
@@ -379,7 +387,7 @@ private:
 		return availableFormats[0];	// use the first format
 	}
 
-	VkPresentModeKHR chooseSwapPresentMOde(const std::vector<VkPresentModeKHR>& availablePresentModes) {
+	VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes) {
 		// VK_PRESENT_MODE_IMMEDIATE_KHR: print image immediately, may cause tearing
 		// VK_PRESENT_MODE_FIFO_KHR: put image in a queue, program wait if queue is full, like v-sync, always available
 		// VK_PRESENT_MODE_FIFO_RELAXED_KHR: similar to last one, will not wait if program is late, may cause tearing
@@ -392,6 +400,26 @@ private:
 		}
 
 		return VK_PRESENT_MODE_FIFO_KHR;
+	}
+
+	VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) {
+		if(capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+			return capabilities.currentExtent;
+		} else {
+			int width, height;
+			// ask glfw for window resolution
+			glfwGetFramebufferSize(window, &width, &height);
+
+			VkExtent2D actualExtent = {
+				static_cast<uint32_t>(width),
+				static_cast<uint32_t>(height)
+			};
+			// bound widht and height
+			actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
+            actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+			
+			return actualExtent;
+		}
 	}
 
 
@@ -457,7 +485,60 @@ private:
 		if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
         	throw std::runtime_error("failed to create window surface!");
     	}
+	}
 
+
+	void createSwapChain() {
+		// setting up config
+		SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
+		VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
+		VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
+		VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
+
+		// number of images in swap chain buffer
+		uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
+		if(swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount) {
+			imageCount = swapChainSupport.capabilities.maxImageCount;
+		}
+
+		VkSwapchainCreateInfoKHR createInfo{};
+		createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+		createInfo.surface = surface;	// tie to selected surface
+		createInfo.minImageCount = imageCount;
+		createInfo.imageFormat = surfaceFormat.format;
+		createInfo.imageColorSpace = surfaceFormat.colorSpace;
+		createInfo.imageExtent = extent;
+		createInfo.imageArrayLayers = 1;	// always 1 unless 3D application
+		createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;	// use VK_IMAGE_USAGE_TRANSFER_DST_BIT to transfer for post-process
+	
+		// set up queue families for graphic and present
+		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+		uint32_t queueFamilyIndices[] = {indices.graphicsFamily.value(), indices.presentFamily.value()};
+
+		if(indices.graphicsFamily != indices.presentFamily) {
+			// share images across multiple queue families, no need to change ownership
+			createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;	
+			createInfo.queueFamilyIndexCount = 2;
+			createInfo.pQueueFamilyIndices = queueFamilyIndices;
+		} else {
+			// image own by one family a time, need explicitly transfer, best performance
+			createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+			createInfo.queueFamilyIndexCount = 0;
+			createInfo.pQueueFamilyIndices = nullptr;
+		}
+		
+		createInfo.preTransform = swapChainSupport.capabilities.currentTransform;	// must specify a transform
+		std::cout << "preTransform bit: " << createInfo.preTransform << std::endl;
+		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;	// specify alpha channel, ignore here
+		createInfo.presentMode = presentMode;
+		createInfo.clipped = VK_TRUE;
+		createInfo.oldSwapchain = VK_NULL_HANDLE;	// for window resize and new swap chain
+	
+	
+		if(vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapChain) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create swap chain!");
+		}
+	
 	}
 
 
