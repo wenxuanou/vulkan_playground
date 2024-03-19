@@ -58,6 +58,21 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance,
     }
 }
 
+struct QueueFamilyIndices {
+	// c++17, allow using has_value() to check if contain value, even 0
+	std::optional<uint32_t> graphicsFamily;	
+	std::optional<uint32_t> presentFamily;	// check if support window surface
+
+	bool isComplete() {
+		return graphicsFamily.has_value() && presentFamily.has_value();
+	}
+};
+
+struct SwapChainSupportDetails {
+	VkSurfaceCapabilitiesKHR capabilities;
+	std::vector<VkSurfaceFormatKHR> formats;
+	std::vector<VkPresentModeKHR> presentModes;
+};
 
 
 class HelloTriangleApplication {
@@ -300,18 +315,7 @@ private:
 	}
 
 
-
 	// search for queue family
-	struct QueueFamilyIndices {
-		// c++17, allow using has_value() to check if contain value, even 0
-		std::optional<uint32_t> graphicsFamily;	
-		std::optional<uint32_t> presentFamily;	// check if support window surface
-
-		bool isComplete() {
-        	return graphicsFamily.has_value() && presentFamily.has_value();
-    	}
-	};
-
 	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
 		QueueFamilyIndices indices;
 		// Assign index to queue families that could be found
@@ -345,15 +349,11 @@ private:
 	}
 
 	// check swap chain support
-	struct SwapChainSupportDetails {
-		VkSurfaceCapabilitiesKHR capabilities;
-		std::vector<VkSurfaceFormatKHR> formats;
-		std::vector<VkPresentModeKHR> presentModes;
-	};
-
 	SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) {
 		SwapChainSupportDetails details;
 
+		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
+		
 		// get supported surface formats
 		uint32_t formatCount;
 		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
@@ -410,6 +410,8 @@ private:
 			// ask glfw for window resolution
 			glfwGetFramebufferSize(window, &width, &height);
 
+			std::cout << "width: " << width << " height: " << height << std::endl;
+
 			VkExtent2D actualExtent = {
 				static_cast<uint32_t>(width),
 				static_cast<uint32_t>(height)
@@ -417,7 +419,7 @@ private:
 			// bound widht and height
 			actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
             actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
-			
+
 			return actualExtent;
 		}
 	}
@@ -508,6 +510,7 @@ private:
 		createInfo.imageFormat = surfaceFormat.format;
 		createInfo.imageColorSpace = surfaceFormat.colorSpace;
 		createInfo.imageExtent = extent;
+		std::cout << "extent: (" << extent.width << ", " << extent.height << ")" << std::endl;
 		createInfo.imageArrayLayers = 1;	// always 1 unless 3D application
 		createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;	// use VK_IMAGE_USAGE_TRANSFER_DST_BIT to transfer for post-process
 	
@@ -528,7 +531,6 @@ private:
 		}
 		
 		createInfo.preTransform = swapChainSupport.capabilities.currentTransform;	// must specify a transform
-		std::cout << "preTransform bit: " << createInfo.preTransform << std::endl;
 		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;	// specify alpha channel, ignore here
 		createInfo.presentMode = presentMode;
 		createInfo.clipped = VK_TRUE;
