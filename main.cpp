@@ -93,10 +93,13 @@ private:
 	VkQueue graphicsQueue;
 	VkSurfaceKHR surface;
 	VkQueue presentQueue;
+
 	VkSwapchainKHR swapChain;
 	std::vector<VkImage> swapChainImages;
 	VkFormat swapChainImageFormat;
 	VkExtent2D swapChainExtent;
+
+	std::vector<VkImageView> swapChainImageViews;
 
 
     void initWindow() {
@@ -115,6 +118,7 @@ private:
 		pickPhysicalDevice();
 		createLogicalDevice();
 		createSwapChain();
+		createImageViews();
     }
 
 	void mainLoop() {
@@ -124,6 +128,10 @@ private:
     }
 
     void cleanup() {
+		for(auto imageView : swapChainImageViews) {
+			vkDestroyImageView(device, imageView, nullptr);
+		}
+
 		vkDestroySwapchainKHR(device, swapChain, nullptr);
 		vkDestroyDevice(device, nullptr);	// destroy before instance
 
@@ -552,6 +560,34 @@ private:
 		// store some info
 		swapChainImageFormat = surfaceFormat.format;
 		swapChainExtent = extent;
+	}
+
+
+	void createImageViews() {
+		swapChainImageViews.resize(swapChainImages.size());
+		for(size_t i = 0; i < swapChainImages.size(); i++) {
+			VkImageViewCreateInfo createInfo{};
+			createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+			createInfo.image = swapChainImages[i];
+			createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;	// treate images as 1d/2d/3d texture and cube map
+			createInfo.format = swapChainImageFormat;
+			// map color channel
+			createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+			createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+			createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+			createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+			// image purpose
+			createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			createInfo.subresourceRange.baseMipLevel = 0;
+			createInfo.subresourceRange.levelCount = 1;	// need multiple image view layers if doing 3d stereograpic
+			createInfo.subresourceRange.baseArrayLayer = 0;
+			createInfo.subresourceRange.layerCount = 1;
+
+			// create image view
+			if(vkCreateImageView(device, &createInfo, nullptr, &swapChainImageViews[i]) != VK_SUCCESS) {
+				throw std::runtime_error("failed to create image views!");
+			}
+		}
 	}
 
 
