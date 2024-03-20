@@ -103,7 +103,7 @@ private:
 
 	std::vector<VkImageView> swapChainImageViews;
 
-	VkRenderpass renderPass;
+	VkRenderPass renderPass;
 	VkPipelineLayout pipelineLayout;
 
 
@@ -819,8 +819,6 @@ private:
 		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create pipeline layout!");
 		}
-
-
 
 		// clean up
 		vkDestroyShaderModule(device, fragShaderModule, nullptr);
