@@ -461,8 +461,6 @@ private:
 			// ask glfw for window resolution
 			glfwGetFramebufferSize(window, &width, &height);
 
-			std::cout << "width: " << width << " height: " << height << std::endl;
-
 			VkExtent2D actualExtent = {
 				static_cast<uint32_t>(width),
 				static_cast<uint32_t>(height)
@@ -520,7 +518,8 @@ private:
 		}
 
 		// get queue handle, set of queue
-		vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &presentQueue);
+		vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
+		vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
 	}
 
 
@@ -1038,8 +1037,6 @@ private:
 		vkResetCommandBuffer(commandBuffer, 0);
 		recordCommandbuffer(commandBuffer, imageIndex);
 	
-		std::cout << "recording commands!!" << std::endl;
-
 		// submit command
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1063,8 +1060,6 @@ private:
 		if(vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence) != VK_SUCCESS) {
 			throw std::runtime_error("failed to submit draw command buffer!");
 		}
-
-		std::cout << "setting up preset!!" << std::endl;
 
 		// submit result to swap chain
 		VkPresentInfoKHR presentInfo{};
