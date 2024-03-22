@@ -112,6 +112,11 @@ private:
 	VkCommandPool commandPool;
 	VkCommandBuffer commandBuffer;
 
+	// managing synchronization
+	VkSemaphore imageAvailableSemaphore;	// semaphore for gpu sync
+	VkSemaphore renderFinishedSemaphore;	
+	VkFence inFlightFence;					// fence for cpu/host sync
+
 
     void initWindow() {
         glfwInit();
@@ -135,6 +140,7 @@ private:
 		createFramebuffers();
 		createCommandPool();
 		createCommandBuffer();
+		createSyncObjects();
     }
 
 	void mainLoop() {
@@ -159,9 +165,12 @@ private:
 			vkDestroyImageView(device, imageView, nullptr);
 		}
 
+		vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
+		vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
+		vkDestroyFence(device, inFlightFence, nullptr);
+
 		vkDestroySwapchainKHR(device, swapChain, nullptr);
 		vkDestroyDevice(device, nullptr);	// destroy before instance
-
 
 		if (enableValidationLayers) {
 			DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
@@ -675,6 +684,15 @@ private:
 		subpass.colorAttachmentCount = 1;
 		subpass.pColorAttachments = &colorAttachmentRef;	// referneced from fragment shader layout
 
+		// subpass dependencies
+		VkSubpassDependency dependency{};
+		dependency.srcSubpass = VK_SUBPASS_EXTERNAL; // refers to implicit subpass
+		dependency.dstSubpass = 0;	// must higher than srcSubpass, unless VK_SUBPASS_External
+		// wait for swap chain and color attachment
+		dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		dependency.srcAccessMask = 0;
+		dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;	// wait for color write
 
 		// create render pass
 		VkRenderPassCreateInfo renderPassInfo{};
@@ -683,10 +701,16 @@ private:
 		renderPassInfo.pAttachments = &colorAttachment;
 		renderPassInfo.subpassCount = 1;
 		renderPassInfo.pSubpasses = &subpass;
+		// apply subpass dependency
+		renderPassInfo.dependencyCount = 1;
+		renderPassInfo.pDependencies = &dependency;
 
 		if(vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create render pass!");
 		}
+
+
+
 	}
 
 
@@ -984,8 +1008,60 @@ private:
 	}
 
 
+	void createSyncObjects() {
+		VkSemaphoreCreateInfo semaphoreInfo{};
+		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+		VkFenceCreateInfo fenceInfo{};
+		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;	// initially unsignaled
+		fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;	// set to be signaled for the first frame
+
+		if(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS 
+			|| vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS 
+			|| vkCreateFence(device, &fenceInfo, nullptr, &inFlightFence) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create semaphores!");
+		}
+	}
+
+
 	// update frame
 	void drawFrame() {
+		// cpu wait for previous frame
+		vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);	// support multiple fences
+		vkResetFences(device, 1, &inFlightFence);			// reset fences
+
+		// get image from swap chain, gpu sync 
+		uint32_t imageIndex;	// get index in swap chain array
+		vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+
+		// record command buffer
+		vkResetCommandBuffer(commandBuffer, 0);
+		recordCommandbuffer(commandBuffer, imageIndex);
+	
+		// submit command
+		VkSubmitInfo submitInfo{};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		// set semaphore to wait before execution
+		VkSemaphore waitSemaphores[] = {imageAvailableSemaphore};
+		VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT}; // use VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT to make render pass begin only after image is available
+		submitInfo.waitSemaphoreCount = 1;
+		submitInfo.pWaitSemaphores = waitSemaphores;
+		submitInfo.pWaitDstStageMask = waitStages;
+
+		// specify which command buffer to submit
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &commandBuffer;
+
+		// signal semaphore when finished
+		VkSemaphore signalSemaphores[] = {renderFinishedSemaphore};
+		submitInfo.signalSemaphoreCount = 1;
+		submitInfo.pSignalSemaphores = signalSemaphores;
+
+		// submit command buffer to graphics queue, refer to fence
+		if(vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence) != VK_SUCCESS) {
+			throw std::runtime_error("failed to submit draw command buffer!");
+		}
+
 
 	}
 
