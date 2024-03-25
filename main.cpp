@@ -142,8 +142,6 @@ private:
 		glfwSetWindowUserPointer(window, this);
 		glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 		
-
-    	window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
     }
 
     void initVulkan() {
@@ -628,6 +626,14 @@ private:
 	}
 
 	void recreateSwapChain() {
+		// handle minimization, window size 0
+		int width = 0, height = 0;
+		glfwGetFramebufferSize(window, &width, &height);
+		while(width == 0 || height == 0) {
+			glfwGetFramebufferSize(window, &width, &height);
+			glfwWaitEvents();
+		}
+
 		vkDeviceWaitIdle(device);	// sync
 
 		cleanupSwapChain(); // clean up resources
