@@ -128,13 +128,20 @@ private:
 	// tracking current frame index for concurrent frames
 	uint32_t currentFrame = 0;
 
+	// handle resize
+	bool framebufferResized = false;
 
 
     void initWindow() {
         glfwInit();
 
     	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    	
+		// allow resize 
+		window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+		glfwSetWindowUserPointer(window, this);
+		glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+		
 
     	window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
     }
@@ -166,28 +173,20 @@ private:
     }
 
     void cleanup() {
-		for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-			vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
-			vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
-			vkDestroyFence(device, inFlightFences[i], nullptr);
-		}
-		
-
-		vkDestroyCommandPool(device, commandPool, nullptr);
-
-		for (auto framebuffer : swapChainFramebuffers) {
-        	vkDestroyFramebuffer(device, framebuffer, nullptr);
-    	}
+		cleanupSwapChain();
 
 		vkDestroyPipeline(device, graphicsPipeline, nullptr);
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		vkDestroyRenderPass(device, renderPass, nullptr);
 
-		for(auto imageView : swapChainImageViews) {
-			vkDestroyImageView(device, imageView, nullptr);
+		for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
+			vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
+			vkDestroyFence(device, inFlightFences[i], nullptr);
 		}
 
-		vkDestroySwapchainKHR(device, swapChain, nullptr);
+		vkDestroyCommandPool(device, commandPool, nullptr);
+
 		vkDestroyDevice(device, nullptr);	// destroy before instance
 
 		if (enableValidationLayers) {
@@ -614,6 +613,28 @@ private:
 		// store some info
 		swapChainImageFormat = surfaceFormat.format;
 		swapChainExtent = extent;
+	}
+
+	void cleanupSwapChain() {
+		for (auto framebuffer : swapChainFramebuffers) {
+        	vkDestroyFramebuffer(device, framebuffer, nullptr);
+    	}
+
+		for(auto imageView : swapChainImageViews) {
+			vkDestroyImageView(device, imageView, nullptr);
+		}
+
+		vkDestroySwapchainKHR(device, swapChain, nullptr);
+	}
+
+	void recreateSwapChain() {
+		vkDeviceWaitIdle(device);	// sync
+
+		cleanupSwapChain(); // clean up resources
+
+		createSwapChain();
+		createImageViews();
+		createFramebuffers();	
 	}
 
 
@@ -1050,11 +1071,21 @@ private:
 	void drawFrame() {
 		// cpu wait for previous frame
 		vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);	// support multiple fences
+		
+		// get image from swap chain, gpu sync 
+		uint32_t imageIndex;
+		VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+		// check if window resize
+		if(result == VK_ERROR_OUT_OF_DATE_KHR || framebufferResized) {
+			recreateSwapChain();
+			return;
+		} else if(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+			throw std::runtime_error("failed to acquire swap chain image!");
+		}
+		
+		// delay reset, make sure is submitting work
 		vkResetFences(device, 1, &inFlightFences[currentFrame]);			// reset fences
 
-		// get image from swap chain, gpu sync 
-		uint32_t imageIndex;	// get index in swap chain array
-		vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
 
 		// record command buffer
 		vkResetCommandBuffer(commandBuffers[currentFrame], 0);
@@ -1096,10 +1127,24 @@ private:
 		presentInfo.pImageIndices = &imageIndex;
 		presentInfo.pResults = nullptr; // check if presentation succeed
 
-		vkQueuePresentKHR(presentQueue, &presentInfo);
+		// further check if window has resized
+		result = vkQueuePresentKHR(presentQueue, &presentInfo);
+		if(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
+			framebufferResized = false;
+			recreateSwapChain();
+		} else if(result != VK_SUCCESS) {
+			throw std::runtime_error("failed to present swap chain image!");
+		}
 
 		// go to next frame
 		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+	}
+
+
+	// flag for window resize
+	static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
+		auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+    	app->framebufferResized = true;
 	}
 
 
