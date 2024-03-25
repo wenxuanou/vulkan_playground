@@ -20,6 +20,10 @@
 #include <limits> // Necessary for std::numeric_limits
 #include <algorithm> // Necessary for std::clamp
 
+// concurrent frame processing
+const int MAX_FRAMES_IN_FLIGHT = 2;	// larget than 2, CPU is ahead of GPU
+
+// window size
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 
@@ -110,12 +114,20 @@ private:
 	std::vector<VkFramebuffer> swapChainFramebuffers;
 
 	VkCommandPool commandPool;
-	VkCommandBuffer commandBuffer;
+	std::vector<VkCommandBuffer> commandBuffers;	// concurrent frames, multiple command buffers
 
 	// managing synchronization
-	VkSemaphore imageAvailableSemaphore;	// semaphore for gpu sync
-	VkSemaphore renderFinishedSemaphore;	
-	VkFence inFlightFence;					// fence for cpu/host sync
+	// VkSemaphore imageAvailableSemaphore;	// semaphore for gpu sync
+	// VkSemaphore renderFinishedSemaphore;	
+	// VkFence inFlightFence;					// fence for cpu/host sync
+	// concurrent
+	std::vector<VkSemaphore> imageAvailableSemaphores;
+	std::vector<VkSemaphore> renderFinishedSemaphores;
+	std::vector<VkFence> inFlightFences;
+
+	// tracking current frame index for concurrent frames
+	uint32_t currentFrame = 0;
+
 
 
     void initWindow() {
@@ -139,7 +151,7 @@ private:
 		createGraphicsPipeline();
 		createFramebuffers();
 		createCommandPool();
-		createCommandBuffer();
+		createCommandBuffers();
 		createSyncObjects();
     }
 
@@ -154,9 +166,12 @@ private:
     }
 
     void cleanup() {
-		vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
-		vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
-		vkDestroyFence(device, inFlightFence, nullptr);
+		for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
+			vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
+			vkDestroyFence(device, inFlightFences[i], nullptr);
+		}
+		
 
 		vkDestroyCommandPool(device, commandPool, nullptr);
 
@@ -936,14 +951,16 @@ private:
 
 	}
 
-	void createCommandBuffer() {
+	void createCommandBuffers() {
+		commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+
 		VkCommandBufferAllocateInfo allocInfo{};
 		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 		allocInfo.commandPool = commandPool;
 		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-		allocInfo.commandBufferCount = 1;
+		allocInfo.commandBufferCount = (uint32_t) commandBuffers.size();
 
-		if (vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer) != VK_SUCCESS) {
+		if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
 			throw std::runtime_error("failed to allocate command buffers!");
 		}
 	}
@@ -1008,6 +1025,10 @@ private:
 
 
 	void createSyncObjects() {
+		imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+
 		VkSemaphoreCreateInfo semaphoreInfo{};
 		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
@@ -1015,10 +1036,12 @@ private:
 		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;	// initially unsignaled
 		fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;	// set to be signaled for the first frame
 
-		if(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS ||
-			vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS || 
-			vkCreateFence(device, &fenceInfo, nullptr, &inFlightFence) != VK_SUCCESS) {
-			throw std::runtime_error("failed to create synchronization objects for a frame!");
+		for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			if(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
+				vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS || 
+				vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS) {
+				throw std::runtime_error("failed to create synchronization objects for a frame!");
+			}
 		}
 	}
 
@@ -1026,22 +1049,22 @@ private:
 	// update frame
 	void drawFrame() {
 		// cpu wait for previous frame
-		vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);	// support multiple fences
-		vkResetFences(device, 1, &inFlightFence);			// reset fences
+		vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);	// support multiple fences
+		vkResetFences(device, 1, &inFlightFences[currentFrame]);			// reset fences
 
 		// get image from swap chain, gpu sync 
 		uint32_t imageIndex;	// get index in swap chain array
-		vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+		vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
 
 		// record command buffer
-		vkResetCommandBuffer(commandBuffer, 0);
-		recordCommandbuffer(commandBuffer, imageIndex);
+		vkResetCommandBuffer(commandBuffers[currentFrame], 0);
+		recordCommandbuffer(commandBuffers[currentFrame], imageIndex);
 	
 		// submit command
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		// set semaphore to wait before execution
-		VkSemaphore waitSemaphores[] = {imageAvailableSemaphore};
+		VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
 		VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT}; // use VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT to make render pass begin only after image is available
 		submitInfo.waitSemaphoreCount = 1;
 		submitInfo.pWaitSemaphores = waitSemaphores;
@@ -1049,15 +1072,15 @@ private:
 
 		// specify which command buffer to submit
 		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &commandBuffer;
+		submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
 
 		// signal semaphore when finished
-		VkSemaphore signalSemaphores[] = {renderFinishedSemaphore};
+		VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
 		submitInfo.signalSemaphoreCount = 1;
 		submitInfo.pSignalSemaphores = signalSemaphores;
 
 		// submit render command to graphics queue, refer to fence
-		if(vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence) != VK_SUCCESS) {
+		if(vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]) != VK_SUCCESS) {
 			throw std::runtime_error("failed to submit draw command buffer!");
 		}
 
@@ -1074,6 +1097,9 @@ private:
 		presentInfo.pResults = nullptr; // check if presentation succeed
 
 		vkQueuePresentKHR(presentQueue, &presentInfo);
+
+		// go to next frame
+		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
 
