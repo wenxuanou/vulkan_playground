@@ -1082,7 +1082,7 @@ private:
 		uint32_t imageIndex;
 		VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
 		// check if window resize
-		if(result == VK_ERROR_OUT_OF_DATE_KHR || framebufferResized) {
+		if(result == VK_ERROR_OUT_OF_DATE_KHR) {
 			recreateSwapChain();
 			return;
 		} else if(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
