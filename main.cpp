@@ -7,6 +7,8 @@
 // #define GLFW_EXPOSE_NATIVE_WIN32
 // #include <GLFW/glfw3native.h>
 
+#include <glm/glm.hpp>
+
 #include <iostream>
 #include <fstream>
 #include <optional>
@@ -15,6 +17,7 @@
 #include <vector>
 #include <set>
 #include <cstring>
+#include <array>
 
 #include <cstdint> // Necessary for uint32_t
 #include <limits> // Necessary for std::numeric_limits
@@ -77,6 +80,43 @@ struct SwapChainSupportDetails {
 	VkSurfaceCapabilitiesKHR capabilities;
 	std::vector<VkSurfaceFormatKHR> formats;
 	std::vector<VkPresentModeKHR> presentModes;
+};
+
+
+struct Vertex {
+	glm::vec2 pos;
+	glm::vec3 color;
+
+	// data format description
+	static VkVertexInputBindingDescription getBindinngDescription() {
+		VkVertexInputBindingDescription bindingDescription{};
+		bindingDescription.binding = 0;
+		bindingDescription.stride = sizeof(Vertex);	// number of bytes for each entry
+		bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;	// move to next data entry after each vertex
+		return bindingDescription;
+	}
+	// describe how to handle vertex input
+	static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
+		std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+		// position
+		attributeDescriptions[0].binding = 0;
+		attributeDescriptions[0].location = 0;	// match location in vertex shader
+		attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;	// match datatype in shader
+		attributeDescriptions[0].offset = offsetof(Vertex, pos);
+		// color
+		attributeDescriptions[1].binding = 0;
+		attributeDescriptions[1].location = 1;
+		attributeDescriptions[1].format = VK_FORMAT_R32G32_SFLOAT;
+		attributeDescriptions[1].offset = offsetof(Vertex, color);
+		return attributeDescriptions;
+	}
+};
+
+// sample vertex data
+const std::vector<Vertex> vertices = {
+	{{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+	{{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+	{{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
 };
 
 

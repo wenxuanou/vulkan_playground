@@ -5,13 +5,13 @@ VulkanTest: main.cpp
 	g++ $(CFLAGS) -o VulkanTest main.cpp $(LDFLAGS)
 
 example02: 02_validation_layers.cpp
-	g++ $(CFLAGS) -o example02 02_validation_layers.cpp $(LDFLAGS)
+	g++ $(CFLAGS) -o examples/example02 02_validation_layers.cpp $(LDFLAGS)
 
 example06: 06_swap_chain_creation.cpp
-	g++ $(CFLAGS) -o example06 06_swap_chain_creation.cpp $(LDFLAGS)
+	g++ $(CFLAGS) -o examples/example06 06_swap_chain_creation.cpp $(LDFLAGS)
 
 example15: 15_hello_triangle.cpp
-	g++ $(CFLAGS) -o example15 15_hello_triangle.cpp $(LDFLAGS)
+	g++ $(CFLAGS) -o example/example15 15_hello_triangle.cpp $(LDFLAGS)
 
 .PHONY: test official clean
 
